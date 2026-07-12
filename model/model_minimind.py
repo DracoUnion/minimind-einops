@@ -187,15 +187,17 @@ class Attention(nn.Module):
         self.n_local_kv_heads = self.num_key_value_heads  # KV 头数
         self.n_rep = self.n_local_heads // self.n_local_kv_heads  # 每个 KV head 需要重复的次数
         self.head_dim = config.head_dim  # 每个头的维度
+        self.proj_size = self.n_local_heads * self.head_dim
+        self.kv_proj_size = self.n_local_kv_heads * self.head_dim
 
         # 线性投影层 (无偏置)
         # Q 投影到 (num_heads * head_dim)
-        self.q_proj = nn.Linear(config.hidden_size, config.num_attention_heads * self.head_dim, bias=False)
+        self.q_proj = nn.Linear(config.hidden_size, self.proj_size, bias=False)
         # K, V 投影到 (num_kv_heads * head_dim)
-        self.k_proj = nn.Linear(config.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
-        self.v_proj = nn.Linear(config.hidden_size, self.num_key_value_heads * self.head_dim, bias=False)
+        self.k_proj = nn.Linear(config.hidden_size, self.kv_proj_size, bias=False)
+        self.v_proj = nn.Linear(config.hidden_size, self.kv_proj_size, bias=False)
         # 输出投影
-        self.o_proj = nn.Linear(config.num_attention_heads * self.head_dim, config.hidden_size, bias=False)
+        self.o_proj = nn.Linear(self.proj_size, config.hidden_size, bias=False)
 
         # Query/Key 归一化 (有助于稳定训练)
         self.q_norm = RMSNorm(self.head_dim, eps=config.rms_norm_eps)
