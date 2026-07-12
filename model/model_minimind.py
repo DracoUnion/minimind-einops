@@ -15,7 +15,7 @@ from einops import rearrange, repeat
 from transformers.activations import ACT2FN
 from transformers import PreTrainedModel, GenerationMixin
 from transformers.modeling_outputs import MoeCausalLMOutputWithPast
-from config_minimind import MiniMindConfig
+from .config_minimind import MiniMindConfig
 
 
 # ==============================================================================
