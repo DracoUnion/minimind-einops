@@ -352,33 +352,39 @@ class MOEFeedForward(nn.Module):
         """
         batch_size, seq_len, hidden_dim = x.shape
         # 展平为 (batch*seq, hidden)，方便并行处理所有 token
-        x_flat = rearrange(x, 'b s d -> (b s) d')
+        x = rearrange(x, 'b s d -> (b s) d')
 
         # 1. 计算路由分数，形状 (batch*seq, num_experts)
-        scores = F.softmax(self.gate(x_flat), dim=-1)
+        scores = F.softmax(self.gate(x), dim=-1)
 
         # 2. Top-K 路由: 选择得分最高的 K 个专家
-        # topk_weight: (batch*seq, K)，topk_idx: (batch*seq, K)
-        topk_weight, topk_idx = torch.topk(scores, k=self.config.num_experts_per_tok, dim=-1, sorted=False)
+        # sc_topk: (batch*seq, K)exp_topk: (batch*seq, K)
+        sc_topk, exp_topk = torch.topk(scores, k=self.config.num_experts_per_tok, dim=-1)
 
         # 可选: 归一化 Top-K 概率
         if self.config.norm_topk_prob:
-            topk_weight = topk_weight / (topk_weight.sum(dim=-1, keepdim=True) + 1e-20)
+            sc_topk /= (sc_topk.sum(dim=-1, keepdim=True) + 1e-20)
 
         # 3. 初始化输出张量
-        y = torch.zeros_like(x_flat)
+        y = torch.zeros_like(x)
 
         # 4. 遍历所有专家，处理被分配给该专家的 token
         for i, expert in enumerate(self.experts):
             # mask: 哪些 token 选择了专家 i，形状 (batch*seq, K)
-            mask = (topk_idx == i)
-            if mask.any():
+            if (exp_topk == i).any():
                 # 找出选择了专家 i 的 token 索引
-                token_idx = mask.any(dim=-1).nonzero().flatten()
-                # 这些 token 对应的路由权重
-                weight = rearrange(topk_weight[mask], 'n -> n 1')
-                # 专家计算并加权，累加到输出
-                y.index_add_(0, token_idx, (expert(x_flat[token_idx]) * weight).to(y.dtype))
+                # hid_idcs 是调用专家 i 的向量序号，hid_ranks 是该专家对于对应向量的排名
+                # 形状均为 (n_select)
+                hid_idcs, hid_ranks = torch.where(exp_topk == i)
+                # 把属于该专家的向量传入该专家
+                # hidden_state 形状为 (n_select, dim)
+                hidden_state = self.experts[i](x[hid_idcs])
+                # 获取该专家权重，最后加一维便于对齐
+                weights = sc_topk[hid_idcs, hid_ranks].unsqueeze(-1)
+                # 乘上权重
+                hidden_state *= weights
+                # 然后将当前专家的输出填回到结果数组中
+                y[hid_idcs] += hidden_state
             elif self.training:
                 # 训练时，如果没有 token 选择这个专家，添加一个虚拟梯度
                 # 确保该专家能收到梯度更新，防止某些专家完全不被训练
@@ -388,7 +394,7 @@ class MOEFeedForward(nn.Module):
         # 目标: 让各个专家处理的 token 数量尽量均衡
         if self.training and self.config.router_aux_loss_coef > 0:
             # load: 每个专家实际处理的 token 比例，形状 (num_experts,)
-            load = F.one_hot(topk_idx, self.config.num_experts).float().mean(0)
+            load = F.one_hot(exp_topk, self.config.num_experts).float().mean(0)
             # aux_loss = sum(load * scores.mean) * num_experts * coef
             # 当某个专家处理太多 token 时，loss 会增大
             self.aux_loss = (load * scores.mean(0)).sum() * self.config.num_experts * self.config.router_aux_loss_coef
