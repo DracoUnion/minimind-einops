@@ -620,6 +620,8 @@ class MiniMindForCausalLM(PreTrainedModel, GenerationMixin):
         返回:
             生成的 token IDs，形状 (batch*num_return_sequences, input_len+new_tokens)
         """
+        if max_new_tokens is None:
+            max_new_tokens = 8192
         # 处理输入
         input_ids = kwargs.pop("input_ids", inputs).repeat(num_return_sequences, 1)
         attention_mask = attention_mask.repeat(num_return_sequences, 1) if attention_mask is not None else None
