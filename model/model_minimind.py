@@ -717,5 +717,5 @@ class MiniMindForCausalLM(PreTrainedModel, GenerationMixin):
         outputs = outputs.tolist()[0][len(inputs["input_ids"][0]):-1]
         response = tokenizer.decode(outputs)
         history.append({"role": role, "content": query})
-        response, history = self.process_response(response, history)
+        # response, history = self.process_response(response, history)
         return response, history
