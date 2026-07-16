@@ -15,6 +15,7 @@ from einops import rearrange, repeat
 from transformers.activations import ACT2FN
 from transformers import PreTrainedModel, GenerationMixin
 from transformers.modeling_outputs import MoeCausalLMOutputWithPast
+from transformers.generation.utils import LogitsProcessorList
 from .config_minimind import MiniMindConfig
 
 
@@ -699,3 +700,22 @@ class MiniMindForCausalLM(PreTrainedModel, GenerationMixin):
         if kwargs.get("return_kv"):
             return {'generated_ids': input_ids, 'past_kv': past_key_values}
         return input_ids
+
+    @torch.inference_mode()
+    def chat(self, tokenizer, query: str, history: List[Dict] = None, role: str = "user",
+             max_length: int = 8192, num_beams=1, do_sample=True, top_p=0.8, temperature=0.8, logits_processor=None,
+             **kwargs):
+        if history is None:
+            history = []
+        gen_kwargs = {"max_length": max_length, "num_beams": num_beams, "do_sample": do_sample, "top_p": top_p,
+                      "temperature": temperature, "logits_processor": logits_processor, **kwargs}
+        inputs = tokenizer.build_chat_input(query, history=history, role=role)
+        inputs = inputs.to(self.device)
+        eos_token_id = [tokenizer.eos_token_id, tokenizer.get_command("<|user|>"),
+                        tokenizer.get_command("<|observation|>")]
+        outputs = self.generate(**inputs, **gen_kwargs, eos_token_id=eos_token_id)
+        outputs = outputs.tolist()[0][len(inputs["input_ids"][0]):-1]
+        response = tokenizer.decode(outputs)
+        history.append({"role": role, "content": query})
+        response, history = self.process_response(response, history)
+        return response, history

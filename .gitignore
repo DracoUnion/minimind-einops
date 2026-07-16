@@ -4,3 +4,6 @@ __pycache__/
 out
 website/
 docs-minimind/
+
+pytorch_model.bin
+model.safetensors
