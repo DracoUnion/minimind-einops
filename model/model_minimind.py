@@ -396,7 +396,7 @@ class MOEFeedForward(nn.Module):
         # 目标: 让各个专家处理的 token 数量尽量均衡
         if self.training and self.config.router_aux_loss_coef > 0:
             # load: 每个专家实际处理的 token 比例，形状 (num_experts,)
-            load = F.one_hot(exp_topk, self.config.num_experts).float().sum(1).mean(0)
+            load = F.one_hot(exp_topk, self.config.num_experts).float().mean((0, 1))
             # aux_loss = sum(load * scores.mean) * num_experts * coef
             # 当某个专家处理太多 token 时，loss 会增大
             self.aux_loss = (load * scores.mean(0)).sum() * self.config.num_experts * self.config.router_aux_loss_coef
